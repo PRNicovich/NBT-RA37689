@@ -651,7 +651,7 @@ Startup;
             
             if ~isequal(fname, 0) && ~isequal(pathname, 0)
                 
-                DoTheLoadThing(pathname, fname);
+                DoTheLoadThing(pathname, fname, filterindex);
                 
             end
             
@@ -673,7 +673,15 @@ Startup;
             
             [pN, fN, extN] = fileparts(text_input);
             
-            DoTheLoadThing(pN, strcat(fN, extN));
+            if strcmp(extN, '.tif') || strcmp(extN, '.tiff')
+                filtIndex = 2;
+            elseif strmp(extN, '.czi')
+                filtIndex = 1;
+            else
+                error('Filetype not supported');
+            end
+            
+            DoTheLoadThing(pN, strcat(fN, extN), filtIndex);
             
         end
             
@@ -683,7 +691,7 @@ Startup;
 %%%%%%%%%%%%%%%%%%%%%%
 % General load function
     
-    function DoTheLoadThing(pathname, fname)
+    function DoTheLoadThing(pathname, fname, filterindex)
             
         set(findobj('Parent', handles.handles.slider_panel, 'Type', 'uicontrol'), 'Enable', 'on');
 
@@ -692,17 +700,24 @@ Startup;
             set(handles.handles.Load_text, 'String', fullfile(pathname, fname{1}));
             handles.Load_file = fullfile(pathname, fname{1});
             
-            imgInfo = imfinfo(handles.Load_file);
-            handles.Img_stack = zeros(imgInfo(1).Width, imgInfo(1).Height, length(fname));
-            for k = 1:length(fname);
-                if imgInfo.SamplesPerPixel == 1
-                    handles.Img_stack(:,:,k) = imread(fullfile(pathname, fname{k}));
-                elseif imgInfo.SamplesPerPixel == 3
-                    handles.Img_stack(:,:,k) = rgb2gray(imread(fullfile(pathname, fname{k})));
-                else
-                    error('SamplesPerPixel value not supported.');
+            if filterindex == 2
+                imgInfo = imfinfo(handles.Load_file);
+                handles.Img_stack = zeros(imgInfo(1).Width, imgInfo(1).Height, length(fname));
+                for k = 1:length(fname);
+                    if imgInfo.SamplesPerPixel == 1
+                        handles.Img_stack(:,:,k) = double(imread(fullfile(pathname, fname{k})));
+                    elseif imgInfo.SamplesPerPixel == 3
+                        handles.Img_stack(:,:,k) = double(rgb2gray(imread(fullfile(pathname, fname{k}))));
+                    else
+                        error('SamplesPerPixel value not supported.');
+                    end
                 end
+            elseif filterindex == 1
+                handles.Img_stack = double(squeeze(CZIImport(handles.Load_file)));
+            else
+                error('Filetype not supported')
             end
+                
         else
             
             set(handles.handles.Load_text, 'String', fullfile(pathname, fname));
@@ -712,7 +727,23 @@ Startup;
 
             % Load CZI file, get rid of time and z stack dimensions, and cast
             % into a double
-            handles.Img_stack = double(squeeze(CZIImport(handles.Load_file)));
+            if filterindex == 2
+                imgInfo = imfinfo(handles.Load_file);
+                handles.Img_stack = zeros(imgInfo(1).Width, imgInfo(1).Height, length(imgInfo));
+                for k = 1:length(imgInfo);
+                    if imgInfo.SamplesPerPixel == 1
+                        handles.Img_stack(:,:,k) = double(imread(fullfile(pathname, fname)), k);
+                    elseif imgInfo.SamplesPerPixel == 3
+                        handles.Img_stack(:,:,k) = double(rgb2gray(imread(fullfile(pathname, fname), k)));
+                    else
+                        error('SamplesPerPixel value not supported.');
+                    end
+                end
+            elseif filterindex == 1
+                handles.Img_stack = double(squeeze(CZIImport(handles.Load_file)));
+            else
+                error('Filetype not supported')
+            end
 
 
             handles.N_frames = 1; % Hard-coding this to 1 since it'll always be a single time point.
