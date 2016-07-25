@@ -82,6 +82,8 @@ handles.SelectedFiles = [];
 handles.ColorList = jet(20);
 handles.ColorList = handles.ColorList(randperm(size(handles.ColorList, 1)), :);
 
+handles.FRETAcceptorChannel = false;
+handles.FRETDonorChannel = true;
 
 guidata(fig1, handles);
 
@@ -246,6 +248,28 @@ Startup;
 
         handles.handles.Load_text = Load_text;
 
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        % Acceptor/Donor channel parameters
+        
+        handles.handles.channelIDText(1) = uicontrol(slider_panel, 'Style', 'text', 'Units', 'normalized',...
+            'String', 'Channel 0', 'Position', [.1 .90 .3 .08], 'BackgroundColor', [.9 .9 .9], ...
+            'HorizontalAlignment', 'center', 'fontsize', 12);
+        
+        handles.handles.channelIDText(2) = uicontrol(slider_panel, 'Style', 'text', 'Units', 'normalized',...
+            'String', 'Channel 1', 'Position', [.6 .90 .3 .08], 'BackgroundColor', [.9 .9 .9], ...
+            'HorizontalAlignment', 'center', 'fontsize', 12);
+        
+        handles.handles.FRETChannelIDText(1) = uicontrol(slider_panel, 'Style', 'text', 'Units', 'normalized',...
+            'String', 'Acceptor', 'Position', [.1 .80 .3 .08], 'BackgroundColor', [.9 .9 .9], ...
+            'HorizontalAlignment', 'center', 'fontsize', 12);
+        
+        handles.handles.FRETChannelIDText(2) = uicontrol(slider_panel, 'Style', 'text', 'Units', 'normalized',...
+            'String', 'Donor', 'Position', [.6 .80 .3 .08], 'BackgroundColor', [.9 .9 .9], ...
+            'HorizontalAlignment', 'center', 'fontsize', 12);
+        
+        handles.handles.FRETChannelIDSwap = uicontrol(slider_panel, 'Style', 'pushbutton', 'Units', 'normalized',...
+            'String', '< -- Swap -- >', 'Position', [.40 .80 .2 .1], 'BackgroundColor', [.9 .9 .9], ...
+            'HorizontalAlignment', 'center', 'fontsize', 12, 'callback', @SwapFRETChannels);
         
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % Background Parameters
@@ -412,7 +436,12 @@ Startup;
          handles.handles.AnalAx = axes('parent', handles.handles.AnalysisFig, ...
              'position', [-0.0123    0.210    1    0.7500]);
 
-         handles.ratioImg = double(handles.Img_stack(:,:,1))./double(handles.Img_stack(:,:,2));
+         if handles.FRETDonorChannel
+            handles.ratioImg = double(handles.Img_stack(:,:,1))./double(handles.Img_stack(:,:,2));
+         elseif handles.FRETAcceptorChannel
+             handles.ratioImg = double(handles.Img_stack(:,:,2))./double(handles.Img_stack(:,:,1));
+         end
+         
          imagesc(handles.ratioImg, 'parent', handles.handles.AnalAx);
          set(handles.handles.AnalAx, 'xtick', [], 'ytick', []);
          axis(handles.handles.AnalAx, 'image');
@@ -465,8 +494,8 @@ Startup;
                 % TIFF file export
                 fileOut = fullfile(pathname, fname);
                 
-                paramComment = sprintf('File %s\nSegChan %d\nInt %d\nErodeDia %d', ...
-                    handles.Load_file, handles.BackgroundChannel, handles.BackgroundThreshold, handles.ErodeDiameter);
+                paramComment = sprintf('File %s\nAccChan %d\nSegChan %d\nInt %d\nErodeDia %d', ...
+                    handles.Load_file, double(handles.FRETAcceptorChannel), handles.BackgroundChannel, handles.BackgroundThreshold, handles.ErodeDiameter);
                 
                 t = Tiff(fileOut,'w');
                 t.setTag('Photometric',Tiff.Photometric.MinIsBlack); % assume grayscale
@@ -490,6 +519,13 @@ Startup;
                 fID = fopen(fileOut, 'w+');
                 fprintf(fID, '# FRET Report from FRET Cell Segmenter\r\n');
                 fprintf(fID, '# File : %s\r\n', handles.Load_file);
+                if handles.FRETDonorChannel
+                    fprintf(fID, '# Donor Channel : 1\r\n');
+                    fprintf(fID, '# Acceptor Channel : 0\r\n');
+                elseif handles.FRETAcceptorChannel
+                    fprintf(fID, '# Donor Channel : 0\r\n');
+                    fprintf(fID, '# Acceptor Channel : 1\r\n');
+                end
                 fprintf(fID, '# Segmentation Channel : %d\r\n', handles.BackgroundChannel);
                 fprintf(fID, '# Cell Border Threshold : %d\r\n', handles.BackgroundThreshold);
                 fprintf(fID, '# Erode Diameter : %d\r\n', handles.ErodeDiameter);
@@ -706,8 +742,7 @@ Startup;
             temp_right = reshape(handles.Img_stack(:,:,2), [], handles.N_frames);
             handles.Min_max_right = [min(temp_right)' max(temp_right)'];
             handles.Display_range_right = [min(temp_right(:)) max(temp_right(:))];
-            
-            set(handles.handles.bkgdChanButton, 'enable', 'on');
+                        
             
         else
             
@@ -732,6 +767,7 @@ Startup;
 
         
         guidata(findobj('Tag', 'TIFF viewer'), handles);
+        drawnow;
         displayBkgdThresholdBndry;
 
         Display_images_in_axes;
@@ -930,36 +966,51 @@ Startup;
         regs = regionprops(gT, 'area', 'PixelIdxList');
         rA = vertcat(regs.Area);
         regs(rA ~= max(rA)) = [];
+        
+        if length(regs) > 1
+            regs = regs(1);
+        end
+        
         bwImg = zeros(size(handles.Img_stack, 1), size(handles.Img_stack, 2), 1);
-        bwImg(regs.PixelIdxList) = 1;
-        bwImg = reshape(bwImg, size(handles.Img_stack, 1), size(handles.Img_stack, 2));
-
-        Bo = bwboundaries(bwImg, 'noholes');
-
-        bwImg = bwmorph(bwImg, 'erode', erodePixels);
-
-        B = bwboundaries(bwImg, 'noholes');
         
-        for m = 1:length(B)
-            plot(handles.handles.ax1, B{m}(:,2), B{m}(:,1), 'w')
+        if isempty(regs)
+            % No pixels are above threshold
+            B = [];
+            Bo = [];
             
-            if handles.N_channels == 2
-                plot(handles.handles.ax2, B{m}(:,2), B{m}(:,1), 'w')
-            end
+        else
             
-        end
+            bwImg(regs.PixelIdxList) = 1;
+            bwImg = reshape(bwImg, size(handles.Img_stack, 1), size(handles.Img_stack, 2));
 
-        for m = 1:length(Bo)
-            plot(handles.handles.ax1, Bo{1}(:,2), Bo{1}(:,1), 'w--')
-            
-            if handles.N_channels == 2
-                plot(handles.handles.ax2, Bo{1}(:,2), Bo{1}(:,1), 'w--')
+            Bo = bwboundaries(bwImg, 'noholes');
+
+            bwImg = bwmorph(bwImg, 'erode', erodePixels);
+
+            B = bwboundaries(bwImg, 'noholes');
+
+            for m = 1:length(B)
+                plot(handles.handles.ax1, B{m}(:,2), B{m}(:,1), 'w')
+
+                if handles.N_channels == 2
+                    plot(handles.handles.ax2, B{m}(:,2), B{m}(:,1), 'w')
+                end
+
             end
-            
-        end
+
+            for m = 1:length(Bo)
+                plot(handles.handles.ax1, Bo{1}(:,2), Bo{1}(:,1), 'w--')
+
+                if handles.N_channels == 2
+                    plot(handles.handles.ax2, Bo{1}(:,2), Bo{1}(:,1), 'w--')
+                end
+
+            end
+
+            set(handles.handles.ax1, 'NextPlot', 'replace')
+            set(handles.handles.ax2, 'NextPlot', 'replace')
         
-        set(handles.handles.ax1, 'NextPlot', 'replace')
-        set(handles.handles.ax2, 'NextPlot', 'replace')
+        end
         
         handles.InnerBorder = B;
         handles.OuterBorder = Bo;
@@ -1024,6 +1075,25 @@ Startup;
         
 
        end
+        
+    end
+
+    function SwapFRETChannels(varargin)
+        
+        handles = guidata(findobj('Tag', 'TIFF viewer'));
+        
+        handles.FRETAcceptorChannel = handles.FRETDonorChannel; % 0-indexed logical
+        handles.FRETDonorChannel = ~handles.FRETDonorChannel;
+        
+        
+        set(handles.handles.FRETChannelIDText(1), 'string', get(handles.handles.FRETChannelIDText(2), 'string'));
+        if handles.FRETAcceptorChannel
+            set(handles.handles.FRETChannelIDText(2), 'string', 'Acceptor');
+        else
+            set(handles.handles.FRETChannelIDText(2), 'string', 'Donor');
+        end
+       
+        guidata(handles.handles.fig1, handles);
         
     end
 
