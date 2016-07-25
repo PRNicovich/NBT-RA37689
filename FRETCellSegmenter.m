@@ -435,6 +435,7 @@ Startup;
 
          handles.handles.AnalAx = axes('parent', handles.handles.AnalysisFig, ...
              'position', [-0.0123    0.210    1    0.7500]);
+        
 
          if handles.FRETDonorChannel
             handles.ratioImg = double(handles.Img_stack(:,:,1))./double(handles.Img_stack(:,:,2));
@@ -453,6 +454,9 @@ Startup;
          handles.handles.colorbar = colorbar(handles.handles.AnalAx);
          ylabel(handles.handles.colorbar, 'Acceptor / Donor');
          
+         % Set colorbar limits to 99.5th percentiles
+         set(handles.handles.AnalAx, 'clim', prctile(handles.ratioImg(:), [.25 99.75])); 
+         
          % Draw in borders
 
          set(handles.handles.AnalAx, 'NextPlot', 'add');
@@ -467,12 +471,15 @@ Startup;
         
         outerSeg(innerSeg) = 0;
         
-        ratioInnerStats = [mean(~isnan(handles.ratioImg(innerSeg(:))) & ~isinf(handles.ratioImg(innerSeg(:)))), ...
-            std(~isnan(handles.ratioImg(innerSeg(:))) & ~isinf(handles.ratioImg(innerSeg(:)))), ...
+        innerVals = handles.ratioImg(innerSeg(:));
+        outerVals = handles.ratioImg(outerSeg(:));
+        
+        ratioInnerStats = [mean(innerVals(~isnan(innerVals(:)) & ~isinf(innerVals(:)))), ...
+            std(innerVals(~isnan(innerVals(:)) & ~isinf(innerVals(:)))), ...
             sum(~isnan(handles.ratioImg(innerSeg(:))) & ~isinf(handles.ratioImg(innerSeg(:))))];
         
-        ratioOuterStats = [mean(~isnan(handles.ratioImg(outerSeg(:))) & ~isinf(handles.ratioImg(outerSeg(:)))), ...
-            std(~isnan(handles.ratioImg(outerSeg(:))) & ~isinf(handles.ratioImg(outerSeg(:)))), ...
+        ratioOuterStats = [mean(outerVals(~isnan(outerVals(:)) & ~isinf(outerVals(:)))), ...
+            std(outerVals(~isnan(outerVals(:)) & ~isinf(outerVals(:)))), ...
             sum(~isnan(handles.ratioImg(outerSeg(:))) & ~isinf(handles.ratioImg(outerSeg(:))))];
         
         % Add stats as text to figure
@@ -795,11 +802,17 @@ Startup;
         handles.Display_range_left = [min(temp_left(:)) max(temp_left(:))];
         
         if handles.N_channels == 2;
+            
+            % Intensity-based alignment of the two channels to correct for
+            % drift, chromatic abberation
+            [opt, met] = imregconfig('Monomodal');
+            regs = imregister(handles.Img_stack(:,:,1), handles.Img_stack(:,:,2), 'translation', opt, met);
+            handles.Img_stack(:,:,1) = regs;
+            
             temp_right = reshape(handles.Img_stack(:,:,2), [], handles.N_frames);
             handles.Min_max_right = [min(temp_right)' max(temp_right)'];
             handles.Display_range_right = [min(temp_right(:)) max(temp_right(:))];
-                        
-            
+
         else
             
             set(handles.handles.bkgdChanButton, 'enable', 'off');
