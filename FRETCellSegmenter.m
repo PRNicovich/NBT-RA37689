@@ -467,8 +467,13 @@ Startup;
         
         outerSeg(innerSeg) = 0;
         
-        ratioInnerStats = [mean(handles.ratioImg(innerSeg)) std(handles.ratioImg(innerSeg)), sum(innerSeg(:))];
-        ratioOuterStats = [mean(handles.ratioImg(outerSeg)) std(handles.ratioImg(outerSeg)), sum(outerSeg(:))];
+        ratioInnerStats = [mean(~isnan(handles.ratioImg(innerSeg(:))) & ~isinf(handles.ratioImg(innerSeg(:)))), ...
+            std(~isnan(handles.ratioImg(innerSeg(:))) & ~isinf(handles.ratioImg(innerSeg(:)))), ...
+            sum(~isnan(handles.ratioImg(innerSeg(:))) & ~isinf(handles.ratioImg(innerSeg(:))))];
+        
+        ratioOuterStats = [mean(~isnan(handles.ratioImg(outerSeg(:))) & ~isinf(handles.ratioImg(outerSeg(:)))), ...
+            std(~isnan(handles.ratioImg(outerSeg(:))) & ~isinf(handles.ratioImg(outerSeg(:)))), ...
+            sum(~isnan(handles.ratioImg(outerSeg(:))) & ~isinf(handles.ratioImg(outerSeg(:))))];
         
         % Add stats as text to figure
         handles.handles.textAx = axes('parent', handles.handles.AnalysisFig, ...
@@ -667,9 +672,10 @@ Startup;
         
         handles = guidata(findobj('Tag', 'TIFF viewer'));
         
-        [fname, pathname, filterindex] = uigetfile({'*.czi', 'CZI File (*.czi)'});
+        [fname, pathname, filterindex] = uigetfile({'*.czi', 'CZI File (*.czi)'; ...
+            '*.tif; *.tiff', 'TIFF File'}, 'MultiSelect', 'on');
         
-        if filterindex == 1;
+        if ge(filterindex, 1);
             
             if ~strcmp(fullfile(pathname, fname), handles.Load_file)
                 % Reset stuff now that there is a new file being loaded (as long as
@@ -681,7 +687,7 @@ Startup;
             
             if ~isequal(fname, 0) && ~isequal(pathname, 0)
                 
-                DoTheLoadThing(pathname, fname);
+                DoTheLoadThing(pathname, fname, filterindex);
                 
             end
             
@@ -703,7 +709,15 @@ Startup;
             
             [pN, fN, extN] = fileparts(text_input);
             
-            DoTheLoadThing(pN, strcat(fN, extN));
+            if strcmp(extN, '.tif') || strcmp(extN, '.tiff')
+                filtIndex = 2;
+            elseif strmp(extN, '.czi')
+                filtIndex = 1;
+            else
+                error('Filetype not supported');
+            end
+            
+            DoTheLoadThing(pN, strcat(fN, extN), filtIndex);
             
         end
             
@@ -713,24 +727,66 @@ Startup;
 %%%%%%%%%%%%%%%%%%%%%%
 % General load function
     
-    function DoTheLoadThing(pathname, fname)
+    function DoTheLoadThing(pathname, fname, filterindex)
             
         set(findobj('Parent', handles.handles.slider_panel, 'Type', 'uicontrol'), 'Enable', 'on');
 
-        set(handles.handles.Load_text, 'String', fullfile(pathname, fname));
-        handles.Load_file = fullfile(pathname, fname);
-        
-        load_wait = waitbar(0, 'Loading File');
-       
-        % Load CZI file, get rid of time and z stack dimensions, and cast
-        % into a double
-        handles.Img_stack = double(squeeze(CZIImport(handles.Load_file)));
-        
-      
-        handles.N_frames = 1; % Hard-coding this to 1 since it'll always be a single time point.
-                              % If/when this changes, this can be a
-                              % variable if needed w/ return of frame
-                              % slider
+        if iscell(fname)
+            
+            set(handles.handles.Load_text, 'String', fullfile(pathname, fname{1}));
+            handles.Load_file = fullfile(pathname, fname{1});
+            
+            if filterindex == 2
+                imgInfo = imfinfo(handles.Load_file);
+                handles.Img_stack = zeros(imgInfo(1).Width, imgInfo(1).Height, length(fname));
+                for k = 1:length(fname);
+                    if imgInfo.SamplesPerPixel == 1
+                        handles.Img_stack(:,:,k) = double(imread(fullfile(pathname, fname{k})));
+                    elseif imgInfo.SamplesPerPixel == 3
+                        handles.Img_stack(:,:,k) = double(rgb2gray(imread(fullfile(pathname, fname{k}))));
+                    else
+                        error('SamplesPerPixel value not supported.');
+                    end
+                end
+            elseif filterindex == 1
+                handles.Img_stack = double(squeeze(CZIImport(handles.Load_file)));
+            else
+                error('Filetype not supported')
+            end
+                
+        else
+            
+            set(handles.handles.Load_text, 'String', fullfile(pathname, fname));
+            handles.Load_file = fullfile(pathname, fname);
+
+%             load_wait = waitbar(0, 'Loading File');
+
+            % Load CZI file, get rid of time and z stack dimensions, and cast
+            % into a double
+            if filterindex == 2
+                imgInfo = imfinfo(handles.Load_file);
+                handles.Img_stack = zeros(imgInfo(1).Width, imgInfo(1).Height, length(imgInfo));
+                for k = 1:length(imgInfo);
+                    if imgInfo.SamplesPerPixel == 1
+                        handles.Img_stack(:,:,k) = double(imread(fullfile(pathname, fname)), k);
+                    elseif imgInfo.SamplesPerPixel == 3
+                        handles.Img_stack(:,:,k) = double(rgb2gray(imread(fullfile(pathname, fname), k)));
+                    else
+                        error('SamplesPerPixel value not supported.');
+                    end
+                end
+            elseif filterindex == 1
+                handles.Img_stack = double(squeeze(CZIImport(handles.Load_file)));
+            else
+                error('Filetype not supported')
+            end
+
+
+            handles.N_frames = 1; % Hard-coding this to 1 since it'll always be a single time point.
+                                  % If/when this changes, this can be a
+                                  % variable if needed w/ return of frame
+                                  % slider
+        end
         
         handles.N_channels = size(handles.Img_stack, 3);
                               
@@ -775,8 +831,8 @@ Startup;
         
         set(handles.handles.IntensityReport, 'enable', 'on');
         
-        waitbar(1, load_wait);
-        close(load_wait)
+%         waitbar(1, load_wait);
+%         close(load_wait)
         
         
         
